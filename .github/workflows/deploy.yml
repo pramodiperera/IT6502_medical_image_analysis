@@ -1,0 +1,93 @@
+name: Build and Deploy to Azure Web App
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  ACR_NAME: pramodimedicalacr
+  IMAGE_NAME: medical-image-analysis
+  WEBAPP_NAME: medical-image-analysis-6502it
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # 1. Get the latest code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Authenticate to Azure using GitHub OIDC
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # 3. Create a unique Docker image tag
+      - name: Set build variables
+        run: |
+          REGISTRY=${{ env.ACR_NAME }}.azurecr.io
+          TIMESTAMP=$(date -u +"%Y%m%d.%H%M")
+          IMAGE_TAG="${TIMESTAMP}.${GITHUB_RUN_NUMBER}"
+          IMAGE="${REGISTRY}/${{ env.IMAGE_NAME }}:${IMAGE_TAG}"
+
+          echo "REGISTRY=${REGISTRY}" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=${IMAGE_TAG}" >> "$GITHUB_ENV"
+          echo "IMAGE=${IMAGE}" >> "$GITHUB_ENV"
+
+          echo "Image tag: ${IMAGE_TAG}"
+          echo "Full image: ${IMAGE}"
+
+      # 4. Log in to Azure Container Registry
+      - name: Log in to ACR
+        run: |
+          az acr login --name ${{ env.ACR_NAME }}
+
+      # 5. Build Docker image
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t "${IMAGE}" \
+            -t "${REGISTRY}/${{ env.IMAGE_NAME }}:latest" \
+            .
+
+      # 6. Push Docker image to ACR
+      - name: Push Docker image
+        run: |
+          docker push "${IMAGE}"
+          docker push "${REGISTRY}/${{ env.IMAGE_NAME }}:latest"
+
+      # 7. Configure Web App settings
+      - name: Configure Web App settings
+        run: |
+          az webapp config appsettings set \
+            --name "${{ env.WEBAPP_NAME }}" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            --settings \
+              WEBSITES_PORT=8501 \
+              OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}"
+
+      # 8. Deploy the newly built image
+      - name: Deploy to Azure Web App
+        run: |
+          az webapp config container set \
+            --name "${{ env.WEBAPP_NAME }}" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            --container-image-name "${IMAGE}"
+
+      # 9. Restart Web App
+      - name: Restart Web App
+        run: |
+          az webapp restart \
+            --name "${{ env.WEBAPP_NAME }}" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}"

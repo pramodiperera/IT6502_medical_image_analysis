@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Secrets & local config
+.env
+*.env
+
+# Git / CI
+.git/
+.github/
+.gitignore
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Docs / misc
+*.md
